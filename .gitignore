@@ -1,0 +1,9 @@
+bin/
+listing_out/
+*.exe
+*.pdb
+*.raddbg
+*.obj
+*.csv
+data_*.json
+diffs_*.f64
