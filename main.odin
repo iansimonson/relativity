@@ -13,6 +13,11 @@ Ring :: struct {
     radius: f32,
 }
 
+Obs_Point :: struct {
+    point: Point,
+    tick_window: int,
+}
+
 /*
 
 blueshift_freq := frequency * C / (C - v)
@@ -38,13 +43,21 @@ E = 1/2 mv^2 is an approximation when V is small relative to C
 
 C :: 1.0/5.0
 SIZE :: 800 // 2 in "units"
-POINT_SPEED :: 0.9 * C
-TICK_STEP :: 10.0/60.0
+POINT_SPEED :: 0.75 * C
+TICK_STEP :: 10.0/60.0 // 6 ticks per second
 
 to_screen :: proc(p: Point) -> [2]c.int {
     p_x_int := c.int(SIZE/2 + p.x * SIZE/2)
     p_y_int := c.int(SIZE/2 + p.y * SIZE/2)
     return {p_x_int, p_y_int}
+}
+
+to_screen_f32 :: proc(f: f32) -> c.int {
+    return c.int(f * SIZE/2)
+}
+
+from_screen_f32 :: proc(x: c.int) -> f32 {
+    return f32(x * 2 / SIZE)
 }
 
 main :: proc() {
@@ -62,12 +75,16 @@ main :: proc() {
     previous_closest: Ring
     obs_speed: f32 = 0
     prev_photon: f64 = 0
-    sim_start_time: f64 = rl.GetTime()
     tick_count := 0
     previous_measured_idx := -1
-
+    prev_observed_ticks := 0
+    obs_tick_count := 0
+    observed_speed: f32
+    
     rings: [dynamic]Ring
-
+    observer_points: [dynamic]Obs_Point
+    
+    sim_start_time: f64 = rl.GetTime()
     for !rl.WindowShouldClose() {
         free_all(context.temp_allocator)
         rl.BeginDrawing()
@@ -75,9 +92,14 @@ main :: proc() {
         rl.ClearBackground(rl.BLACK)
 
         frame_now := rl.GetTime()
+        defer frame_time = frame_now
+        current_tick_time := sim_start_time + f64(tick_count) * TICK_STEP
+        next_tick_time := sim_start_time + f64(tick_count + 1) * TICK_STEP
 
         // 1 ring per 10 steps
-        if sim_start_time + f64(tick_count + 1) * TICK_STEP < frame_now {
+        if next_tick_time < frame_now {
+            tick_count += 1
+            current_tick_time = next_tick_time
             // tick, simulate world update            
             point_step: f32 = TICK_STEP * POINT_SPEED
             point.x += point_step * velocity
@@ -87,55 +109,63 @@ main :: proc() {
             }
 
             for &ring in rings {
-                ring.radius += TICK_STEP * C * SIZE/2
+                ring.radius += TICK_STEP * C
             }
-            append(&rings, Ring{center = point, radius = 10})
 
-            frame_time = frame_now
+            append(&rings, Ring{center = point, radius = from_screen_f32(10)})
 
-            closest_idx := -1
-            closest_dist: c.int = SIZE * SIZE
             for ring, i in rings {
-                r_screen := to_screen(ring.center)
-                distance := linalg.length2(r_screen - obs_screen)
-                r2 := c.int(ring.radius * ring.radius)
-                if distance <= r2 && abs(r2 - distance) <= 5000 && distance < closest_dist {
-                    closest_idx = i
-                    closest_dist = distance
+                if i < previous_measured_idx do continue
+
+                d := math.sqrt(linalg.length2(ring.center - observer))
+                if d <= ring.radius {
+                    append(&observer_points, Obs_Point{point = ring.center, tick_window = tick_count})
+                    previous_measured_idx = i
                 }
             }
 
-            if closest_idx != -1 {
-                r_screen := to_screen(rings[closest_idx].center)
-                draw_dotted_line(obs_screen, r_screen)
-                rl.DrawCircle(r_screen.x, r_screen.y, 10, rl.YELLOW)
-
-                if previous_measured_idx == -1 {
-                    previous_measured_idx = closest_idx
-                } else if previous_measured_idx != closest_idx {
-                    fmt.printfln("measuring diff between %v (%.2v) and %v (%.2v)", previous_measured_idx, rings[previous_measured_idx].center.x, closest_idx, rings[closest_idx].center.x)
-                    obs_dist := math.sqrt_f32(linalg.length2(rings[closest_idx].center - rings[previous_measured_idx].center)) // // distance covered in one tick
-                    // speed of light is 1/5 per tick so speed _should_ be
-                    // (obs_dist / 1tick) / (speed of light/1 tick) = obs_dist / speed of light = ratio
-                    apparent_speed := obs_dist / C
-                    if abs(apparent_speed - obs_speed) > 0.001 {
-                        obs_speed = apparent_speed
+            obs_tick_count += 1
+            new_observed_ticks := 0
+            start_distance: Point
+            end_distance: Point
+            for op in observer_points {
+                if op.tick_window >= (tick_count - obs_tick_count) && op.tick_window < tick_count {
+                    new_observed_ticks += 1
+                    if start_distance == {} {
+                        start_distance = op.point
                     }
-                    previous_measured_idx = closest_idx
+                } else if op.tick_window == tick_count {
+                    end_distance = op.point
+                    break
                 }
             }
-
-            tick_count += 1
+            if new_observed_ticks != 0 {
+                fmt.printfln("pre obs ticks= %v, new obs ticks= %v, tikcs= %v", prev_observed_ticks, new_observed_ticks, obs_tick_count)
+                prev_observed_ticks = new_observed_ticks
+                observed_speed = math.sqrt(linalg.length2(end_distance - start_distance)) / (f32(obs_tick_count) * TICK_STEP)
+                obs_tick_count = 0
+            }
         }
+
+        // try to lerp the actual time
+        dt := frame_now - current_tick_time
+
 
         for &ring in rings {
             p := ring.center
             p_int := to_screen(p)
+            r_lerp := f32(to_screen_f32(ring.radius + f32(C * dt)))
             rl.DrawCircle(p_int.x, p_int.y, 2, rl.RED)
-            rl.DrawCircleLines(p_int.x, p_int.y, ring.radius, rl.GREEN)
+            rl.DrawCircleLines(p_int.x, p_int.y, r_lerp, rl.GREEN)
         }
 
-        point_screen := to_screen(point)
+        if previous_measured_idx != -1 {
+            r_screen := to_screen(rings[previous_measured_idx].center)
+            draw_dotted_line(obs_screen, r_screen)
+            rl.DrawCircle(r_screen.x, r_screen.y, 10, rl.YELLOW)
+        }
+
+        point_screen := to_screen(point + {f32(POINT_SPEED * dt * f64(velocity)), 0})
         rl.DrawCircle(point_screen.x, point_screen.y, 10, rl.YELLOW)
         rl.DrawCircle(obs_screen.x, obs_screen.y, 10, rl.BLUE)
 
@@ -152,8 +182,8 @@ main :: proc() {
         rl.DrawText(fmt.ctprintf("GetTime(): %.2v, Ticks: %v", frame_now, tick_count), 100, 100, 20, rl.BLUE)
         rl.DrawText(fmt.ctprintf("Current Rings: %v", len(rings)), 100, 130, 20, rl.BLUE)
         rl.DrawText("Distance Travelled: 5 Cs unit", 100, 160, 20, rl.BLUE)
-        rl.DrawText("Speed of Light: 1 C", 100, 190, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Observed Speed: %.2v", obs_speed * 5), 100, 220, 20, rl.BLUE) 
+        rl.DrawText(fmt.ctprintf("Speed of Light: %.2v", C*5), 100, 190, 20, rl.BLUE)
+        rl.DrawText(fmt.ctprintf("Observed Speed: %.2v", observed_speed*5), 100, 220, 20, rl.BLUE) 
     }
 }
 
