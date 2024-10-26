@@ -186,12 +186,13 @@ main :: proc() {
         }
 
         rl.DrawRectangle(100, 100, 800, 300, rl.DARKGRAY)
-        rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, 160, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, 190, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, 220, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Observed Apparent Mag Velocity: %.2v", linalg.length(apparent_velocity)), 100, 250, 20, rl.BLUE) 
+        rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, 110, 20, rl.BLUE)
+        rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, 140, 20, rl.BLUE)
+        rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, 170, 20, rl.BLUE)
+        rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, 200, 20, rl.BLUE)
+        rl.DrawText(fmt.ctprintf("Observed Apparent Mag Velocity: %.2v", linalg.length(apparent_velocity)), 100, 230, 20, rl.BLUE) 
         // TODO actually calculate this from apparent velocity
-        rl.DrawText(fmt.ctprintf("Observed Relative Mag Velocity: %.2v", POINT_SPEED), 100, 280, 20, rl.BLUE) 
+        rl.DrawText(fmt.ctprintf("Observed Relative Mag Velocity: %.2v", POINT_SPEED), 100, 260, 20, rl.BLUE) 
 
         
         // prune old observations so we don't run out of memory
