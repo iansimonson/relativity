@@ -99,6 +99,7 @@ main :: proc() {
     // simulation state
     frame_time: f64
     sim_start_time: f64 = rl.GetTime()
+    prev_ring_time: f64 = rl.GetTime()
 
     for !rl.WindowShouldClose() {
         free_all(context.temp_allocator)
@@ -127,25 +128,37 @@ main :: proc() {
         }
         if made_observations {
             start_point, end_point: Point
+            prev_time: f64
             for op in observer_points {
                 if op.time != frame_now {
                     start_point = op.point
                     end_point = op.point
+                    prev_time = op.time
                 } else {
                     end_point = op.point
                 }
             }
-            delta_distance := end_point - start_point
-            apparent_velocity = delta_distance / dt
+            delta_distance := linalg.length(end_point - start_point)
+            delta_time := frame_now - prev_time
+            apparent_velocity = delta_distance / f32(delta_time)
+            // fmt.println("start=", start_point, "end= ", end_point, "dt= ", dt, "ddistance= ", delta_distance)
         }
 
         if true { // Object update        
-            append(&object.previous_positions, Ring{center = object.position})
+            
+            if frame_now - prev_ring_time > .2 {
+                append(&object.previous_positions, Ring{center = object.position})
+                prev_ring_time = frame_now
+            }
             // point_step: f32 = TICK_STEP * POINT_SPEED
             object.position += dt * object.velocity_real
             
-            if (object.position.x >= sink.x) {
+            if (object.position.x > sink.x) {
+                object.position = sink
+                object.velocity_real = [2]f32{-POINT_SPEED, 0}
+            } else if object.position.x < source.x {
                 object.position = source
+                object.velocity_real = [2]f32{POINT_SPEED, 0}
             }
 
             for &ring in object.previous_positions {
@@ -155,12 +168,12 @@ main :: proc() {
 
         // try to lerp the actual time
         // dt := frame_now - current_tick_time
-        draw_circle(source, .1, rl.BLUE)
-        draw_circle(sink, .1, rl.BLUE)
+        draw_circle(source, .1, rl.RED)
+        draw_circle(sink, .1, rl.RED)
         draw_circle(observer.position, .1, rl.BLUE)
 
         for ring in object.previous_positions {
-            draw_circle(ring.center, .1, rl.RED)
+            draw_circle(ring.center, .01, rl.RED)
             draw_circle_lines(ring.center, ring.radius, rl.GREEN)
         }
 
@@ -221,7 +234,6 @@ to_screen_f32 :: proc(f: f32) -> c.int {
 draw_circle :: proc(point: Point, r: f32, color: rl.Color) {
     p_screen := to_screen_point(point)
     r_screen := f32(to_screen_f32(r))
-    fmt.printfln("POINT AT (%v, %v) -> (%v, %v)", point.x, point.y, p_screen.x, p_screen.y)
     rl.DrawCircle(p_screen.x, p_screen.y, r_screen, color)
 }
 
