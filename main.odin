@@ -15,7 +15,7 @@ SCREEN_HEIGHT :: 1080
 
 // Simulation Space
 C :: 1.0
-POINT_SPEED :: 0.75 * C
+POINT_SPEED :: 0.5 * C
 TICK_STEP :: 1.0/100.0
 NUM_TICKS_FOR_OBS :: 25
 
@@ -150,6 +150,12 @@ main :: proc() {
         // TODO actually calculate this from apparent velocity
         // rl.DrawText(fmt.ctprintf("Observed Relative Mag Velocity: %.2v", POINT_SPEED), 100, 260, 20, rl.BLUE) 
         
+
+        if (simulation.ticks % 2000 == 0) {
+            prune(&simulation)
+            obs_idx = len(simulation.states[simulation.current].planet.observations) - 1
+            diff_apparent_velocity = 0
+        }
     }
 }
 
@@ -299,8 +305,10 @@ draw :: proc(sim: Simulation) {
     
     state := sim.states[sim.current]
 
-    for ring in state.ship.previous_positions {
-        draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+    for ring, i in state.ship.previous_positions {
+        if i % 10 == 0 {
+            draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+        }
     }
 
     draw_circle(state.ship.position, .1, rl.YELLOW)
@@ -315,5 +323,46 @@ draw :: proc(sim: Simulation) {
         latest_point := state.planet.observations[len(state.planet.observations) - 1]
         draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
         draw_dotted_line(state.planet.position, latest_point.point)
+    }
+}
+
+prune :: proc(sim: ^Simulation) {
+    cur_state := &sim.states[sim.current]
+    prune_prev_pos(&cur_state.ship.previous_positions)
+    prune_prev_pos(&cur_state.planet.previous_positions)
+    prune_observations(&cur_state.ship.observations, sim.ticks - 1000)
+    prune_observations(&cur_state.planet.observations, sim.ticks - 1000)
+
+    next_state := &sim.states[sim.next]
+    delete(next_state.planet.previous_positions)
+    next_state.planet.previous_positions = {}
+    delete(next_state.ship.previous_positions)
+    next_state.ship.previous_positions = {}
+    delete(next_state.planet.observations)
+    next_state.planet.observations = {}
+    delete(next_state.ship.observations)
+    next_state.ship.observations = {}
+}
+
+prune_prev_pos :: proc(rings: ^[dynamic]Ring) {
+    prune_idx := -1
+    for r, i in rings {
+        if r.radius < 25 do break
+
+        prune_idx = i
+    }
+    if prune_idx != -1 {
+        remove_range(rings, 0, prune_idx + 1)
+    }
+}
+
+prune_observations :: proc(obs: ^[dynamic]Obs_Point, threshold: int) {
+    prune_idx := -1
+    for o, i in obs {
+        if o.tick > threshold do break
+        prune_idx = i
+    }
+    if prune_idx != -1 {
+        remove_range(obs, 0, prune_idx + 1)
     }
 }
