@@ -80,6 +80,11 @@ Object :: struct {
     velocity_real: [2]f32,
 }
 
+Reference_Frame :: enum {
+    Observer,
+    Object,
+}
+
 main :: proc() {
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "relativity")
     defer rl.CloseWindow()
@@ -173,7 +178,7 @@ main :: proc() {
         draw_circle(observer.position, .1, rl.BLUE)
 
         for ring in object.previous_positions {
-            draw_circle(ring.center, .01, rl.RED)
+            // draw_circle(ring.center, .01, rl.RED)
             draw_circle_lines(ring.center, ring.radius, rl.GREEN)
         }
 
@@ -181,11 +186,11 @@ main :: proc() {
 
         if len(observer_points) > 0 {
             latest_point := observer_points[len(observer_points) - 1]
-            draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xFF})
+            draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
             draw_dotted_line(observer.position, latest_point.point)
         }
 
-        rl.DrawRectangle(100, 100, 800, 300, rl.DARKGRAY)
+        rl.DrawRectangle(100, 100, 800, 300, rl.Color{50, 50, 50, 100})
         rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, 110, 20, rl.BLUE)
         rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, 140, 20, rl.BLUE)
         rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, 170, 20, rl.BLUE)
@@ -223,13 +228,13 @@ main :: proc() {
 }
 
 to_screen_point :: proc(point: Point) -> (screen: [2]c.int) {
-    screen.x = c.int((point.x + 5) / 10 * SCALE) + 540
-    screen.y = c.int((point.y + 5) / 10 * SCALE) + 140
+    screen.x = c.int((point.x + 5) / 5 * SCALE) + 135
+    screen.y = c.int((point.y + 2.5) / 5 * SCALE) + 135
     return
 }
 
 to_screen_f32 :: proc(f: f32) -> c.int {
-    return c.int(f / 10 * SCALE)
+    return c.int(f / 5 * SCALE)
 }
 
 draw_circle :: proc(point: Point, r: f32, color: rl.Color) {
@@ -245,7 +250,16 @@ draw_circle_lines :: proc(point: Point, r: f32, color: rl.Color) {
 }
 
 draw_dotted_line :: proc(start, end: Point) {
-    s_screen := to_screen_point(start)
-    e_screen := to_screen_point(end)
-    rl.DrawLine(s_screen.x, s_screen.y, e_screen.x, e_screen.y, rl.RED)
+    direction_vector := end - start
+    dmag := linalg.length(direction_vector)
+    dvec_unit := linalg.normalize(direction_vector)
+    dots := int(dmag / 0.1)
+
+    for t in 0..<dots {
+        ds := start + dvec_unit * 0.1 * f32(t)
+        de := ds + dvec_unit * 0.05
+        ds_scren := to_screen_point(ds)
+        de_screen := to_screen_point(de)
+        rl.DrawLine(ds_scren.x, ds_scren.y, de_screen.x, de_screen.y, rl.RED)
+    }
 }
