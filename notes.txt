@@ -1,0 +1,18 @@
+blueshift_freq := frequency * C / (C - v)
+C == speed of light
+v == actual speed of object
+
+actual speed of object == C - (frequency * C / blueshift_freq)
+apparent speed of object = number of waves per 1 tick
+
+but then need to account for time dilation:
+f_b = 1/gamma * fc / (c - v)
+f_r = 1/gamma * fc / (c + v)
+
+E_b = 1/gamma * Ec / (c - v)
+E_r = 1/gamma * Ec / (c + v)
+
+
+E = gamma * mc^2 is the exact energy
+E = 1/2 mv^2 is an approximation when V is small relative to C
+
