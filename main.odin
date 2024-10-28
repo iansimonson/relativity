@@ -15,7 +15,7 @@ SCREEN_HEIGHT :: 1080
 
 // Simulation Space
 C :: 1.0
-POINT_SPEED :: 0.5 * C
+POINT_SPEED :: 0.75 * C
 TICK_STEP :: 1.0/100.0
 NUM_TICKS_FOR_OBS :: 25
 
@@ -64,9 +64,17 @@ simulation_destroy :: proc(sim: Simulation) {
     delete(sim.states[1].ship.observations)
 }
 
+Reference_Frame :: enum {
+    Planet,
+    Ship,
+}
+
 main :: proc() {
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "relativity")
     defer rl.CloseWindow()
+
+    observer_location_1 := Point{3.0, 0}
+    observer_location_2 := Point{0, 2.5}
 
     simulation := Simulation{
         source = Point{-2.5, 0},
@@ -75,28 +83,56 @@ main :: proc() {
         current = 0,
         next = 1,
     }
+    defer simulation_destroy(simulation)
 
     // simulation state
     time_accumulator: f32
     diff_apparent_velocity: [2]f32
     obs_idx := 0
 
+    paused: bool
+    observations_only: bool
+    reference_frame: Reference_Frame = .Planet
 
     for !rl.WindowShouldClose() {
         free_all(context.temp_allocator)
+
+        key := rl.GetKeyPressed()
+        if key == .O {
+            observations_only = !observations_only
+        } else if key == .P {
+            paused = !paused
+        } else if key == .L {
+            if simulation.states[simulation.current].planet.position == observer_location_1 {
+                planet := &simulation.states[simulation.current].planet
+                clear_object(planet)
+                planet^ = Object{
+                    position = observer_location_2,
+                }
+            } else {
+                planet := &simulation.states[simulation.current].planet
+                clear_object(planet)
+                planet^ = Object{
+                    position = observer_location_1,
+                }
+            }
+        }
+
         rl.BeginDrawing()
         defer rl.EndDrawing()
         rl.ClearBackground(rl.BLACK)
 
-        dt := rl.GetFrameTime()
-        
-        total_dt := time_accumulator + dt
-        ticks := int(total_dt/TICK_STEP)
-        time_accumulator = total_dt - f32(ticks) * TICK_STEP
-        
-        update(&simulation, ticks)
+        if !paused {
+            dt := rl.GetFrameTime()
+            
+            total_dt := time_accumulator + dt
+            ticks := max(int(total_dt/TICK_STEP), 0)
+            time_accumulator = total_dt - f32(ticks) * TICK_STEP
+            
+            update(&simulation, ticks)
+        }
 
-        draw(simulation)
+        draw(simulation, observations_only)
 
     
         planet_observations := &simulation.states[simulation.current].planet.observations
@@ -114,7 +150,7 @@ main :: proc() {
                     if diff_apparent_velocity != {} {
                         cos_theta := linalg.dot(diff_apparent_velocity, diff_vapp) / (linalg.length(diff_apparent_velocity) * linalg.length(diff_vapp))
                         if cos_theta != 1 {
-                            fmt.println("VELOCITY SWAPPED DIRECTIONS!", diff_apparent_velocity, diff_vapp, cos_theta)
+                            // fmt.println("VELOCITY SWAPPED DIRECTIONS!", diff_apparent_velocity, diff_vapp, cos_theta)
                             obs_idx = i
                         }
                     }
@@ -128,7 +164,7 @@ main :: proc() {
                 #reverse for obs, i in planet_observations {
                     if obs.tick < latest_point.tick - NUM_TICKS_FOR_OBS {
                         previous_point = obs
-                        fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
+                        // fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
                         break
                     }
                 }
@@ -262,6 +298,13 @@ clone_reuse_mem :: proc(dst: $T/^[dynamic]$E, source: $U/[dynamic]E) {
     }
 }
 
+clear_object :: proc(obj: ^Object) {
+    clear(&obj.observations)
+    clear(&obj.previous_positions)
+    obj.velocity_rel = 0
+    obj.position = 0
+}
+
 // RENDERING
 
 to_screen_point :: proc(point: Point) -> (screen: [2]c.int) {
@@ -301,17 +344,18 @@ draw_dotted_line :: proc(start, end: Point) {
     }
 }
 
-draw :: proc(sim: Simulation) {
+draw :: proc(sim: Simulation, observations_only: bool) {
     
     state := sim.states[sim.current]
 
-    for ring, i in state.ship.previous_positions {
-        if i % 10 == 0 {
-            draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+    if !observations_only {
+        for ring, i in state.ship.previous_positions {
+            if i % 30 == 0 {
+                draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+            }
         }
+        draw_circle(state.ship.position, .1, rl.YELLOW)
     }
-
-    draw_circle(state.ship.position, .1, rl.YELLOW)
 
     // try to lerp the actual time
     // dt := frame_now - current_tick_time
