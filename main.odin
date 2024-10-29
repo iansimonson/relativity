@@ -79,6 +79,7 @@ main :: proc() {
 
     observer_location_1 := Point{3.0, 0}
     observer_location_2 := Point{0, 2.5}
+    observer_location_3 := Point{1, -1}
 
     simulation := Simulation{
         source = Point{-2.5, 0},
@@ -88,6 +89,7 @@ main :: proc() {
             observers = {
                 Object{position = observer_location_1},
                 Object{position = observer_location_2},
+                Object{position = observer_location_3},
             }
         }},
         current = 0,
