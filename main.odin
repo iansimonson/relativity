@@ -291,6 +291,8 @@ update :: proc(simulation: ^Simulation, ticks: int) {
 
 step :: proc(simulation: ^Simulation) {
     simulation.ticks += 1
+    if simulation.frame == .Ship do return 
+
     current_state := &simulation.states[simulation.current]
     next_state := &simulation.states[simulation.next]
     defer simulation.next, simulation.current = simulation.current, simulation.next
@@ -395,8 +397,12 @@ simulation_swap_frames :: proc(sim: ^Simulation) {
         }
         sim.source = gamma * (sim.source - adjust_vector)
         sim.sink = gamma * (sim.sink - adjust_vector)
+        sim.frame = .Ship
+    } else {
+        sim.frame = .Observers
     }
     sim_state_destroy(sim.states[sim.next])
+    sim.states[sim.next] = {}
 }
 
 simulation_clone :: proc(dst: ^Simulation, src: Simulation) {
