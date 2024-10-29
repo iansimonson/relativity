@@ -69,11 +69,6 @@ sim_state_destroy :: proc(sim_state: Simulation_State) {
     }
 }
 
-Reference_Frame :: enum {
-    Planet,
-    Ship,
-}
-
 INITIAL_OBSERVER_LOCATION_1 := Point{3.0, 0}
 INITIAL_OBSERVER_LOCATION_2 := Point{0, 2.5}
 INITIAL_OBSERVER_LOCATION_3 := Point{1, -1}
@@ -113,8 +108,8 @@ main :: proc() {
 
     paused: bool
     draw_ship: bool = true
-    draw_observations: bool
-    reference_frame: Reference_Frame = .Planet
+    draw_observations: bool = true
+    draw_calculations: bool = true
 
     for !rl.WindowShouldClose() {
         free_all(context.temp_allocator)
@@ -126,6 +121,8 @@ main :: proc() {
             paused = !paused
         } else if key == .L {
            draw_observations = !draw_observations
+        } else if key == .K {
+            draw_calculations = !draw_calculations
         } else if key == .R {
             simulation_destroy(simulation)
             simulation = {}
@@ -210,7 +207,7 @@ main :: proc() {
             }
         }
 
-        if draw_observations {
+        if draw_calculations {
             for calc_pos, i in calculated_positions {
                 if calc_pos.exists {
                     draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
@@ -430,8 +427,8 @@ draw :: proc(sim: Simulation, draw_ship, draw_observations: bool) {
 
     // try to lerp the actual time
     // dt := frame_now - current_tick_time
-    draw_circle(sim.source, .1, rl.RED)
-    draw_circle(sim.sink, .1, rl.RED)
+    draw_circle(sim.source, .05, rl.RED)
+    draw_circle(sim.sink, .05, rl.RED)
     for obs in state.observers {
         draw_circle(obs.position, .1, rl.BLUE)
         

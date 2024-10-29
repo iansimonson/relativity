@@ -1,3 +1,20 @@
+# Relativity simulation
+
+## Controls
+* P - pause/resume simulation
+* O - show/hide the actual moving object and propogating signals
+* L - show/hide the observed/calculated positions and the dotted lines
+* R - restart the simulation
+
+## Legend:
+* Bright yellow dot - moving object
+* Yellow rings - light signals propogating
+* Blue dots - observers with relative velocity 0 to eachother
+* Transparent yellow dot - where an observer has last seen the object
+* Small blue dot - where an observer thinks the object is currently
+* Red/green dotted lines - just to mark which dot is from which observer
+
+
 This little simulation came about because I couldn't get out of my head that we should be able to see
 objects moving faster than light even if nothing is actually travelling faster than C.
 However I was apparently asking the wrong question as any time I asked about observing faster than light motion people
