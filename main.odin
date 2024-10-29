@@ -4,6 +4,7 @@ import rl "vendor:raylib"
 import "core:c"
 import "core:math/linalg"
 import "core:math"
+import "core:slice"
 
 import "core:fmt"
 
@@ -73,39 +74,46 @@ Reference_Frame :: enum {
     Ship,
 }
 
+INITIAL_OBSERVER_LOCATION_1 := Point{3.0, 0}
+INITIAL_OBSERVER_LOCATION_2 := Point{0, 2.5}
+INITIAL_OBSERVER_LOCATION_3 := Point{1, -1}
+
+INITIAL_POSITION := Simulation {
+    source = Point{-2.5, 0},
+    sink = Point{2.5, 0},
+    states = {0 = Simulation_State{ 
+        ship = Object{position = Point{-2.5, 0}, velocity_rel = [2]f32{POINT_SPEED, 0}},
+        observers = {
+            Object{position = INITIAL_OBSERVER_LOCATION_1},
+            Object{position = INITIAL_OBSERVER_LOCATION_2},
+            Object{position = INITIAL_OBSERVER_LOCATION_3},
+        }
+    }},
+    current = 0,
+    next = 1,
+}
+
 main :: proc() {
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "relativity")
     defer rl.CloseWindow()
 
-    observer_location_1 := Point{3.0, 0}
-    observer_location_2 := Point{0, 2.5}
-    observer_location_3 := Point{1, -1}
-
-    simulation := Simulation{
-        source = Point{-2.5, 0},
-        sink = Point{2.5, 0},
-        states = {0 = Simulation_State{ 
-            ship = Object{position = Point{-2.5, 0}, velocity_rel = [2]f32{POINT_SPEED, 0}},
-            observers = {
-                Object{position = observer_location_1},
-                Object{position = observer_location_2},
-                Object{position = observer_location_3},
-            }
-        }},
-        current = 0,
-        next = 1,
-    }
+    simulation: Simulation
+    simulation_clone(&simulation,  INITIAL_POSITION)
     defer simulation_destroy(simulation)
 
     // simulation state
     time_accumulator: f32
-    diff_apparent_velocities := make([dynamic][2]f32, len(simulation.states[0].observers))
-    apparent_velocities := make([dynamic][2]f32, len(simulation.states[0].observers))
-
-    obs_idxs := make([dynamic]int, len(simulation.states[0].observers))
+    num_observers := len(simulation.states[0].observers)
+    diff_apparent_velocities := make([dynamic][2]f32, num_observers)
+    apparent_velocities := make([dynamic][2]f32, num_observers)
+    obs_idxs := make([dynamic]int, num_observers)
+    Calc_Pos :: struct {point: Point, exists: bool}
+    calculated_positions := make([dynamic]Calc_Pos, num_observers)
+    calculated_real_velocities := make([dynamic][2]f32, num_observers)
 
     paused: bool
-    observations_only: bool
+    draw_ship: bool = true
+    draw_observations: bool
     reference_frame: Reference_Frame = .Planet
 
     for !rl.WindowShouldClose() {
@@ -113,23 +121,20 @@ main :: proc() {
 
         key := rl.GetKeyPressed()
         if key == .O {
-            observations_only = !observations_only
+            draw_ship = !draw_ship
         } else if key == .P {
             paused = !paused
         } else if key == .L {
-           /* if simulation.states[simulation.current].planet.position == observer_location_1 {
-                planet := &simulation.states[simulation.current].planet
-                clear_object(planet)
-                planet^ = Object{
-                    position = observer_location_2,
-                }
-            } else {
-                planet := &simulation.states[simulation.current].planet
-                clear_object(planet)
-                planet^ = Object{
-                    position = observer_location_1,
-                }
-            } */
+           draw_observations = !draw_observations
+        } else if key == .R {
+            simulation_destroy(simulation)
+            simulation = {}
+            simulation_clone(&simulation, INITIAL_POSITION)
+            slice.fill(diff_apparent_velocities[:], [2]f32{})
+            slice.fill(apparent_velocities[:], [2]f32{})
+            slice.fill(obs_idxs[:], 0)
+            slice.fill(calculated_positions[:], Calc_Pos{})
+            slice.fill(calculated_real_velocities[:], [2]f32{})
         }
 
         rl.BeginDrawing()
@@ -146,7 +151,7 @@ main :: proc() {
             update(&simulation, ticks)
         }
 
-        draw(simulation, observations_only)
+        draw(simulation, draw_ship, draw_observations)
 
     
         observers := &simulation.states[simulation.current].observers
@@ -166,8 +171,9 @@ main :: proc() {
                         if diff_apparent_velocities[o_i] != {} {
                             cos_theta := linalg.dot(diff_apparent_velocities[o_i], diff_vapp) / (linalg.length(diff_apparent_velocities[o_i]) * linalg.length(diff_vapp))
                             if cos_theta != 1 {
-                                // fmt.println("VELOCITY SWAPPED DIRECTIONS!", diff_apparent_velocities[o_i], diff_vapp, cos_theta)
                                 obs_idxs[o_i] = i
+                                calculated_positions[o_i] = {}
+                                calculated_real_velocities[o_i] = {}
                             }
                         }
                         diff_apparent_velocities[o_i] = diff_vapp
@@ -187,23 +193,54 @@ main :: proc() {
                     delta_d := latest_point.point - previous_point.point
                     delta_t := f32(latest_point.tick - previous_point.tick) * TICK_STEP
                     apparent_velocities[o_i] = delta_d / delta_t
+
+                    // calculate _real_ delta t
+                    delay_1 := linalg.length(previous_point.point - observer.position)
+                    start_tick := previous_point.tick - int(delay_1 / TICK_STEP)
+                    
+                    delay_2 := linalg.length(latest_point.point - observer.position)
+                    end_tick := latest_point.tick - int(delay_2 / TICK_STEP)
+                    real_vrel := delta_d / (f32(end_tick - start_tick) * TICK_STEP)
+
+                    expected_position := latest_point.point + delay_2*real_vrel
+                    calculated_positions[o_i] = {expected_position, true}
+                    calculated_real_velocities[o_i] = real_vrel
                 }
     
             }
         }
 
-        
-        rl.DrawRectangle(100, 100, 800, 300, rl.Color{50, 50, 50, 100})
-        rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, 110, 20, rl.BLUE)
-        rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, 140, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, 170, 20, rl.BLUE)
-        rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, 200, 20, rl.BLUE)
-        y : c.int = 230
-        for obs, i in simulation.states[simulation.current].observers {
-            rl.DrawText(fmt.ctprintf("Observer(%d) - Apparent Mag Velocity: %.2v", i, linalg.length(apparent_velocities[i])), 100, y, 20, rl.BLUE) 
-            y += 30
+        if draw_observations {
+            for calc_pos, i in calculated_positions {
+                if calc_pos.exists {
+                    draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
+                    draw_dotted_line(calc_pos.point, simulation.states[simulation.current].observers[i].position, rl.Color{0, 255, 0, 200})
+                }
+            }
         }
-        rl.DrawText(fmt.ctprintf("Simulation Ticks: %d", simulation.ticks), 100, y, 20, rl.BLUE)
+
+        
+        rl.DrawRectangle(50, 100, 550, 400, rl.Color{50, 50, 50, 100})
+        y : c.int = 110
+        font_size: c.int = 18
+        padded_size: c.int = 24
+        rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, y, font_size, rl.BLUE)
+        y += padded_size
+        rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, y, font_size, rl.BLUE)
+        y += padded_size
+        rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, y, font_size, rl.BLUE)
+        y += padded_size
+        rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, y, font_size, rl.BLUE)
+        y += padded_size
+        for obs, i in simulation.states[simulation.current].observers {
+            rl.DrawText(fmt.ctprintf("Observer(%d):", i), 100, y, font_size, rl.BLUE) 
+            y += padded_size
+            rl.DrawText(fmt.ctprintf("     - Apparent Mag Velocity: %.2v", linalg.length(apparent_velocities[i])), 100, y, font_size, rl.BLUE)
+            y += padded_size
+            rl.DrawText(fmt.ctprintf("     - Calculated Relative Velocity: %.2v", linalg.length(calculated_real_velocities[i])), 100, y, font_size, rl.BLUE)
+            y += padded_size
+        }
+        rl.DrawText(fmt.ctprintf("Simulation Ticks: %d", simulation.ticks), 100, y, font_size, rl.BLUE)
         // TODO actually calculate this from apparent velocity
         // rl.DrawText(fmt.ctprintf("Observed Relative Mag Velocity: %.2v", POINT_SPEED), 100, 260, 20, rl.BLUE) 
         
@@ -296,6 +333,16 @@ step :: proc(simulation: ^Simulation) {
     }
 }
 
+simulation_clone :: proc(dst: ^Simulation, src: Simulation) {
+    dst.current = src.current
+    dst.next = src.next
+    dst.sink = src.sink
+    dst.source = src.source
+    dst.ticks = src.ticks
+    clone_state(&dst.states[0], src.states[0])
+    clone_state(&dst.states[1], src.states[1])
+}
+
 clone_state :: proc(dst: ^Simulation_State, src: Simulation_State) {
 
     resize(&dst.observers, len(src.observers))
@@ -353,7 +400,7 @@ draw_circle_lines :: proc(point: Point, r: f32, color: rl.Color) {
     rl.DrawCircleLines(p_screen.x, p_screen.y, r_screen, color)
 }
 
-draw_dotted_line :: proc(start, end: Point) {
+draw_dotted_line :: proc(start, end: Point, color := rl.RED) {
     direction_vector := end - start
     dmag := linalg.length(direction_vector)
     dvec_unit := linalg.normalize(direction_vector)
@@ -364,15 +411,15 @@ draw_dotted_line :: proc(start, end: Point) {
         de := ds + dvec_unit * 0.05
         ds_scren := to_screen_point(ds)
         de_screen := to_screen_point(de)
-        rl.DrawLine(ds_scren.x, ds_scren.y, de_screen.x, de_screen.y, rl.RED)
+        rl.DrawLine(ds_scren.x, ds_scren.y, de_screen.x, de_screen.y, color)
     }
 }
 
-draw :: proc(sim: Simulation, observations_only: bool) {
+draw :: proc(sim: Simulation, draw_ship, draw_observations: bool) {
     
     state := sim.states[sim.current]
 
-    if !observations_only {
+    if draw_ship {
         for ring, i in state.ship.previous_positions {
             if i % 30 == 0 {
                 draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
@@ -387,10 +434,13 @@ draw :: proc(sim: Simulation, observations_only: bool) {
     draw_circle(sim.sink, .1, rl.RED)
     for obs in state.observers {
         draw_circle(obs.position, .1, rl.BLUE)
-        if len(obs.observations) > 0 {
-            latest_point := obs.observations[len(obs.observations) - 1]
-            draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
-            draw_dotted_line(obs.position, latest_point.point)
+        
+        if draw_observations {
+            if len(obs.observations) > 0 {
+                latest_point := obs.observations[len(obs.observations) - 1]
+                draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
+                draw_dotted_line(obs.position, latest_point.point)
+            }
         }
     }
 
