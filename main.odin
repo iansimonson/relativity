@@ -31,6 +31,7 @@ Ring :: struct {
 Obs_Point :: struct {
     point: Point,
     tick: int,
+    obj_idx: int,
     // time: f64,
 }
 
@@ -46,12 +47,18 @@ Simulation_State :: struct {
     observers: [dynamic]Object,
 }
 
+Frame :: enum {
+    Ship,
+    Observers,
+}
+
 // double buffer the simulation state like game of life
 Simulation :: struct {
     source, sink: Point,
     states: [2]Simulation_State,
     current, next: int,
     ticks: int,
+    frame: Frame,
 }
 
 simulation_destroy :: proc(sim: Simulation) {
@@ -86,6 +93,7 @@ INITIAL_POSITION := Simulation {
     }},
     current = 0,
     next = 1,
+    frame = .Observers,
 }
 
 main :: proc() {
@@ -141,6 +149,14 @@ main :: proc() {
             slice.fill(calculated_real_velocities[:], [2]f32{})
             started = false
             start_time = rl.GetTime()
+        } else if key == .F {
+            // swap frames
+            simulation_swap_frames(&simulation)
+            slice.fill(diff_apparent_velocities[:], [2]f32{})
+            slice.fill(apparent_velocities[:], [2]f32{})
+            slice.fill(obs_idxs[:], 0)
+            slice.fill(calculated_positions[:], Calc_Pos{})
+            slice.fill(calculated_real_velocities[:], [2]f32{})
         }
 
         rl.BeginDrawing()
@@ -160,69 +176,73 @@ main :: proc() {
         draw(simulation, draw_ship, draw_observations)
 
     
-        observers := &simulation.states[simulation.current].observers
-        apparent_velocities := make([dynamic][2]f32, len(observers), context.temp_allocator)
-        for observer, o_i in observers {
-            planet_observations := observer.observations
-            if len(planet_observations) > 2 {
-                latest_point := planet_observations[len(planet_observations) - 1]
-                // if the object has changed directions then we should wait another second
-                // to check apparent velocity
-                observed_direction_change: bool
-                #reverse for obs, i in planet_observations {
-                    if obs.tick != latest_point.tick {
-                        delta_d := latest_point.point - obs.point
-                        delta_t := f32(latest_point.tick - obs.tick) * TICK_STEP
-                        diff_vapp := delta_d / delta_t
-                        if diff_apparent_velocities[o_i] != {} {
-                            cos_theta := linalg.dot(diff_apparent_velocities[o_i], diff_vapp) / (linalg.length(diff_apparent_velocities[o_i]) * linalg.length(diff_vapp))
-                            if cos_theta != 1 {
-                                obs_idxs[o_i] = i
-                                calculated_positions[o_i] = {}
-                                calculated_real_velocities[o_i] = {}
-                            }
-                        }
-                        diff_apparent_velocities[o_i] = diff_vapp
-                        break
-                    }
-                }
-    
-                if len(planet_observations) - obs_idxs[o_i] >= NUM_TICKS_FOR_OBS {
-                    previous_point: Obs_Point
+        if simulation.frame == .Observers {
+            observers := &simulation.states[simulation.current].observers
+            apparent_velocities := make([dynamic][2]f32, len(observers), context.temp_allocator)
+            for observer, o_i in observers {
+                planet_observations := observer.observations
+                if len(planet_observations) > 2 {
+                    latest_point := planet_observations[len(planet_observations) - 1]
+                    // if the object has changed directions then we should wait another second
+                    // to check apparent velocity
+                    observed_direction_change: bool
                     #reverse for obs, i in planet_observations {
-                        if obs.tick < latest_point.tick - NUM_TICKS_FOR_OBS {
-                            previous_point = obs
-                            // fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
+                        if obs.tick != latest_point.tick {
+                            delta_d := latest_point.point - obs.point
+                            delta_t := f32(latest_point.tick - obs.tick) * TICK_STEP
+                            diff_vapp := delta_d / delta_t
+                            if diff_apparent_velocities[o_i] != {} {
+                                cos_theta := linalg.dot(diff_apparent_velocities[o_i], diff_vapp) / (linalg.length(diff_apparent_velocities[o_i]) * linalg.length(diff_vapp))
+                                if cos_theta != 1 {
+                                    obs_idxs[o_i] = i
+                                    calculated_positions[o_i] = {}
+                                    calculated_real_velocities[o_i] = {}
+                                }
+                            }
+                            diff_apparent_velocities[o_i] = diff_vapp
                             break
                         }
                     }
-                    delta_d := latest_point.point - previous_point.point
-                    delta_t := f32(latest_point.tick - previous_point.tick) * TICK_STEP
-                    apparent_velocities[o_i] = delta_d / delta_t
+        
+                    if len(planet_observations) - obs_idxs[o_i] >= NUM_TICKS_FOR_OBS {
+                        previous_point: Obs_Point
+                        #reverse for obs, i in planet_observations {
+                            if obs.tick < latest_point.tick - NUM_TICKS_FOR_OBS {
+                                previous_point = obs
+                                // fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
+                                break
+                            }
+                        }
+                        delta_d := latest_point.point - previous_point.point
+                        delta_t := f32(latest_point.tick - previous_point.tick) * TICK_STEP
+                        apparent_velocities[o_i] = delta_d / delta_t
 
-                    // calculate _real_ delta t
-                    delay_1 := linalg.length(previous_point.point - observer.position)
-                    start_tick := previous_point.tick - int(delay_1 / TICK_STEP)
-                    
-                    delay_2 := linalg.length(latest_point.point - observer.position)
-                    end_tick := latest_point.tick - int(delay_2 / TICK_STEP)
-                    real_vrel := delta_d / (f32(end_tick - start_tick) * TICK_STEP)
+                        // calculate _real_ delta t
+                        delay_1 := linalg.length(previous_point.point - observer.position)
+                        start_tick := previous_point.tick - int(delay_1 / TICK_STEP)
+                        
+                        delay_2 := linalg.length(latest_point.point - observer.position)
+                        end_tick := latest_point.tick - int(delay_2 / TICK_STEP)
+                        real_vrel := delta_d / (f32(end_tick - start_tick) * TICK_STEP)
 
-                    expected_position := latest_point.point + delay_2*real_vrel
-                    calculated_positions[o_i] = {expected_position, true}
-                    calculated_real_velocities[o_i] = real_vrel
+                        expected_position := latest_point.point + delay_2*real_vrel
+                        calculated_positions[o_i] = {expected_position, true}
+                        calculated_real_velocities[o_i] = real_vrel
+                    }
+        
                 }
-    
             }
-        }
 
-        if draw_calculations {
-            for calc_pos, i in calculated_positions {
-                if calc_pos.exists {
-                    draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
-                    draw_dotted_line(calc_pos.point, simulation.states[simulation.current].observers[i].position, rl.Color{0, 255, 0, 200})
+            if draw_calculations {
+                for calc_pos, i in calculated_positions {
+                    if calc_pos.exists {
+                        draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
+                        draw_dotted_line(calc_pos.point, simulation.states[simulation.current].observers[i].position, rl.Color{0, 255, 0, 200})
+                    }
                 }
             }
+        } else {
+            
         }
 
         
@@ -285,11 +305,23 @@ step :: proc(simulation: ^Simulation) {
 
     next_state.ship.position += TICK_STEP * current_state.ship.velocity_rel
     if next_state.ship.position.x > simulation.sink.x {
-        next_state.ship.velocity_rel *= -1
-        next_state.ship.position.x = simulation.sink.x
+        if simulation.frame == .Observers {
+            next_state.ship.velocity_rel *= -1
+            next_state.ship.position.x = simulation.sink.x
+        } else {
+            for &obs in next_state.observers {
+                obs.velocity_rel *= -1
+            }
+        }
     } else if next_state.ship.position.x < simulation.source.x {
-        next_state.ship.velocity_rel *= -1
-        next_state.ship.position.x = simulation.source.x
+        if simulation.frame == .Observers {
+            next_state.ship.velocity_rel *= -1
+            next_state.ship.position.x = simulation.source.x
+        } else {
+            for &obs in next_state.observers {
+                obs.velocity_rel *= -1
+            }
+        }
     }
 
     // update observers
@@ -301,21 +333,25 @@ step :: proc(simulation: ^Simulation) {
         obs.position += TICK_STEP * obs.velocity_rel
     }
     
-    /*// check observations from ship
-    for prev_ring, i in current_state.planet.previous_positions {
-        updated_ring := obs.previous_positions[i]
+    // check observations from ship
+    for obs, o_i in next_state.observers {
+        prev_obs := current_state.observers[o_i]
+        for prev_ring, i in prev_obs.previous_positions {
+            updated_ring := obs.previous_positions[i]
 
-        assert(updated_ring.center == prev_ring.center)
-
-        had_not_seen := linalg.length2(current_state.ship.position - prev_ring.center) > (prev_ring.radius * prev_ring.radius)
-        sees_now := linalg.length2(next_state.ship.position - updated_ring.center) < (updated_ring.radius * updated_ring.radius)
-
-        if had_not_seen && sees_now {
-            append(&next_state.ship.observations, Obs_Point{updated_ring.center, simulation.ticks})
+            assert(updated_ring.center == prev_ring.center)
+    
+            d := linalg.length2(obs.position - prev_ring.center)
+            had_not_seen: bool = (linalg.length2(obs.position - prev_ring.center)) >= (prev_ring.radius * prev_ring.radius)
+            sees_now: bool = (linalg.length2(obs.position - updated_ring.center)) < (updated_ring.radius * updated_ring.radius)
+    
+            if had_not_seen && sees_now {
+                append(&next_state.ship.observations, Obs_Point{point = updated_ring.center, tick = simulation.ticks, obj_idx = o_i})
+            }
         }
-    }*/
+    }
 
-    for &obs, i in next_state.observers {
+    for &obs in next_state.observers {
         // check observations from planet
         for prev_ring, i in current_state.ship.previous_positions {
             updated_ring := next_state.ship.previous_positions[i]
@@ -325,18 +361,42 @@ step :: proc(simulation: ^Simulation) {
             d := linalg.length2(obs.position - prev_ring.center)
             had_not_seen: bool = (linalg.length2(obs.position - prev_ring.center)) >= (prev_ring.radius * prev_ring.radius)
             sees_now: bool = (linalg.length2(obs.position - updated_ring.center)) < (updated_ring.radius * updated_ring.radius)
-            /*if i == 0 {
-                r1 := prev_ring.radius * prev_ring.radius
-                r2 := updated_ring.radius * updated_ring.radius
-                fmt.println("IDX:", i, "HAD NOT SEEN", had_not_seen, "SEES", sees_now, "d:", d, "r1:", r1, "r2:", r2)
-            }*/
     
             if had_not_seen && sees_now {
-                // fmt.println("WE SAW IT")
-                append(&obs.observations, Obs_Point{updated_ring.center, simulation.ticks})
+                append(&obs.observations, Obs_Point{updated_ring.center, simulation.ticks, -1})
             }
         }
     }
+
+    if simulation.frame == .Ship {
+        simulation.sink += current_state.observers[0].velocity_rel
+        simulation.source += current_state.observers[0].velocity_rel
+    }
+}
+
+simulation_swap_frames :: proc(sim: ^Simulation) {
+    if sim.frame == .Observers {
+        current_state := &sim.states[sim.current]
+        adjust_vector := current_state.ship.position
+        vel_rel := current_state.ship.velocity_rel
+        gamma := math.sqrt(1 - current_state.ship.velocity_rel.x)
+        current_state.ship.position -= adjust_vector
+        
+        // Clearing so we can just use a clock in
+        // the ship's reference frame
+        clear_dynamic_array(&current_state.ship.observations)
+        clear_dynamic_array(&current_state.ship.previous_positions)
+
+        for &obs in current_state.observers {
+            clear_dynamic_array(&obs.observations)
+            clear_dynamic_array(&obs.previous_positions)
+            obs.velocity_rel = -1 * vel_rel
+            obs.position = gamma * (obs.position - adjust_vector)
+        }
+        sim.source = gamma * (sim.source - adjust_vector)
+        sim.sink = gamma * (sim.sink - adjust_vector)
+    }
+    sim_state_destroy(sim.states[sim.next])
 }
 
 simulation_clone :: proc(dst: ^Simulation, src: Simulation) {
@@ -345,6 +405,7 @@ simulation_clone :: proc(dst: ^Simulation, src: Simulation) {
     dst.sink = src.sink
     dst.source = src.source
     dst.ticks = src.ticks
+    dst.frame = src.frame
     clone_state(&dst.states[0], src.states[0])
     clone_state(&dst.states[1], src.states[1])
 }
@@ -425,30 +486,61 @@ draw :: proc(sim: Simulation, draw_ship, draw_observations: bool) {
     
     state := sim.states[sim.current]
 
-    if draw_ship {
-        for ring, i in state.ship.previous_positions {
-            if i % 50 == 0 {
-                draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+    if sim.frame == .Observers {
+        if draw_ship {
+            for ring, i in state.ship.previous_positions {
+                if i % 50 == 0 {
+                    draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
+                }
+            }
+            draw_circle(state.ship.position, .1, rl.YELLOW)
+        }
+    
+        // try to lerp the actual time
+        // dt := frame_now - current_tick_time
+        draw_circle(sim.source, .05, rl.RED)
+        draw_circle(sim.sink, .05, rl.RED)
+        for obs in state.observers {
+            draw_circle(obs.position, .1, rl.BLUE)
+            
+            if draw_observations {
+                if len(obs.observations) > 0 {
+                    latest_point := obs.observations[len(obs.observations) - 1]
+                    draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
+                    draw_dotted_line(obs.position, latest_point.point)
+                }
+            }
+        }
+    } else {
+        if draw_ship {
+            for obs in state.observers {
+                for ring, i in obs.previous_positions {
+                    if i % 50 == 0 {
+                        draw_circle_lines(ring.center, ring.radius, rl.Color{0, 0, 200, 150})
+                    }
+                }
+                draw_circle(obs.position, .1, rl.BLUE)
+            }
+        }
+
+        draw_circle(sim.source, 0.05, rl.RED)
+        draw_circle(sim.sink, 0.05, rl.RED)
+
+        if draw_observations {
+            drew_observer := make([dynamic]bool, len(state.observers), context.temp_allocator)
+            #reverse for obs in state.ship.observations {
+                if slice.all_of(drew_observer[:], true) do break
+
+                if !drew_observer[obs.obj_idx] {
+                    draw_circle(obs.point, .1, rl.Color{0, 0, 200, 200})
+                    draw_dotted_line(state.ship.position, obs.point)
+                    drew_observer[obs.obj_idx] = true
+                }
             }
         }
         draw_circle(state.ship.position, .1, rl.YELLOW)
     }
 
-    // try to lerp the actual time
-    // dt := frame_now - current_tick_time
-    draw_circle(sim.source, .05, rl.RED)
-    draw_circle(sim.sink, .05, rl.RED)
-    for obs in state.observers {
-        draw_circle(obs.position, .1, rl.BLUE)
-        
-        if draw_observations {
-            if len(obs.observations) > 0 {
-                latest_point := obs.observations[len(obs.observations) - 1]
-                draw_circle(latest_point.point, .1, rl.Color{0xD5, 0xB6, 0x0A, 0xAF})
-                draw_dotted_line(obs.position, latest_point.point)
-            }
-        }
-    }
 
 }
 
