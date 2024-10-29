@@ -77,7 +77,7 @@ INITIAL_POSITION := Simulation {
     source = Point{-2.5, 0},
     sink = Point{2.5, 0},
     states = {0 = Simulation_State{ 
-        ship = Object{position = Point{-2.5, 0}, velocity_rel = [2]f32{POINT_SPEED, 0}},
+        ship = Object{position = Point{-2.5, 0}, velocity_rel = [2]f32{0, 0}},
         observers = {
             Object{position = INITIAL_OBSERVER_LOCATION_1},
             Object{position = INITIAL_OBSERVER_LOCATION_2},
@@ -110,10 +110,17 @@ main :: proc() {
     draw_ship: bool = true
     draw_observations: bool = true
     draw_calculations: bool = true
+    start_time := rl.GetTime()
+    started: bool
 
     for !rl.WindowShouldClose() {
         free_all(context.temp_allocator)
 
+        now := rl.GetTime()
+        if !started && (now - start_time > 5) {
+            simulation.states[simulation.current].ship.velocity_rel = [2]f32{POINT_SPEED, 0}
+            started = true
+        }
         key := rl.GetKeyPressed()
         if key == .O {
             draw_ship = !draw_ship
@@ -132,6 +139,8 @@ main :: proc() {
             slice.fill(obs_idxs[:], 0)
             slice.fill(calculated_positions[:], Calc_Pos{})
             slice.fill(calculated_real_velocities[:], [2]f32{})
+            started = false
+            start_time = rl.GetTime()
         }
 
         rl.BeginDrawing()
@@ -418,7 +427,7 @@ draw :: proc(sim: Simulation, draw_ship, draw_observations: bool) {
 
     if draw_ship {
         for ring, i in state.ship.previous_positions {
-            if i % 30 == 0 {
+            if i % 50 == 0 {
                 draw_circle_lines(ring.center, ring.radius, rl.Color{255, 255, 0, 150})
             }
         }
