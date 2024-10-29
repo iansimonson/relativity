@@ -8,3 +8,5 @@ listing_out/
 data_*.json
 diffs_*.f64
 /relativity
+*.rdi
+/out.txt
