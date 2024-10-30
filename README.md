@@ -3,6 +3,9 @@
 WIP - currently just shows apparent superluminal motion and calculating the actual relative velocity
 from those observation points.
 
+
+![video](./assets/superluminal_speeds.gif)
+
 Fun note, while not actually possible, if you set the object's speed to > 1, you get some interesting
 artifacts like seeing the object in two places at once if you're at certain angles and high enough speeds,
 or seeing the object move backwards to its origin if you're head-on
