@@ -15,7 +15,8 @@ TODO:
 ## Controls
 * P - pause/resume simulation
 * O - show/hide the actual moving object and propogating signals
-* L - show/hide the observed/calculated positions and the dotted lines
+* L - show/hide the observed positions and the red dotted lines
+* K - show/hide the calculated position and the green dotted lines
 * R - restart the simulation
 
 ## Legend:
