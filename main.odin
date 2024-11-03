@@ -167,104 +167,10 @@ main :: proc() {
         }
 
         draw(sim, draw_flags)
-
-    
-        observers := &sim.states[sim.current].observers
-        for observer, o_i in observers {
-            planet_observations := observer.observations
-            if len(planet_observations) > 2 {
-                latest_point := planet_observations[len(planet_observations) - 1]
-                // if the object has changed directions then we should wait another second
-                // to check apparent velocity
-                observed_direction_change: bool
-                #reverse for obs, i in planet_observations {
-                    if obs.tick != latest_point.tick {
-                        delta_d := latest_point.point - obs.point
-                        delta_t := f32(latest_point.tick - obs.tick) * TICK_STEP
-                        diff_vapp := delta_d / delta_t
-                        if sim.diff_apparent_velocities[o_i] != {} {
-                            cos_theta := linalg.dot(sim.diff_apparent_velocities[o_i], diff_vapp) / (linalg.length(sim.diff_apparent_velocities[o_i]) * linalg.length(diff_vapp))
-                            if cos_theta != 1 {
-                                sim.obs_idxs[o_i] = i
-                                sim.calculated_positions[o_i] = {}
-                                sim.calculated_real_velocities[o_i] = {}
-                            }
-                        }
-                        sim.diff_apparent_velocities[o_i] = diff_vapp
-                        break
-                    }
-                }
-    
-                if len(planet_observations) - sim.obs_idxs[o_i] >= NUM_TICKS_FOR_OBS {
-                    previous_point: Obs_Point
-                    #reverse for obs, i in planet_observations {
-                        if obs.tick < latest_point.tick - NUM_TICKS_FOR_OBS {
-                            previous_point = obs
-                            // fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
-                            break
-                        }
-                    }
-                    delta_d := latest_point.point - previous_point.point
-                    delta_t := f32(latest_point.tick - previous_point.tick) * TICK_STEP
-                    sim.apparent_velocities[o_i] = delta_d / delta_t
-
-                    // calculate _real_ delta t
-                    delay_1 := linalg.length(previous_point.point - observer.position)
-                    start_tick := previous_point.tick - int(delay_1 / TICK_STEP)
-                    
-                    delay_2 := linalg.length(latest_point.point - observer.position)
-                    end_tick := latest_point.tick - int(delay_2 / TICK_STEP)
-                    real_vrel := delta_d / (f32(end_tick - start_tick) * TICK_STEP)
-
-                    expected_position := latest_point.point + delay_2*real_vrel
-                    sim.calculated_positions[o_i] = {expected_position, true}
-                    sim.calculated_real_velocities[o_i] = real_vrel
-                }
-    
-            }
-        }
-
-        if .Calculations in draw_flags {
-            for calc_pos, i in sim.calculated_positions {
-                if calc_pos.exists {
-                    draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
-                    draw_dotted_line(calc_pos.point, sim.states[sim.current].observers[i].position, rl.Color{0, 255, 0, 200})
-                }
-            }
-        }
-
-        
-        rl.DrawRectangle(50, 100, 550, 400, rl.Color{50, 50, 50, 100})
-        y : c.int = 110
-        font_size: c.int = 18
-        padded_size: c.int = 24
-        rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, y, font_size, rl.BLUE)
-        y += padded_size
-        rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, y, font_size, rl.BLUE)
-        y += padded_size
-        rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, y, font_size, rl.BLUE)
-        y += padded_size
-        rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, y, font_size, rl.BLUE)
-        y += padded_size
-        for obs, i in sim.states[sim.current].observers {
-            rl.DrawText(fmt.ctprintf("Observer(%d):", i), 100, y, font_size, rl.BLUE) 
-            y += padded_size
-            rl.DrawText(fmt.ctprintf("     - Apparent Mag Velocity: %.2v", linalg.length(sim.apparent_velocities[i])), 100, y, font_size, rl.BLUE)
-            y += padded_size
-            rl.DrawText(fmt.ctprintf("     - Calculated Relative Velocity: %.2v", linalg.length(sim.calculated_real_velocities[i])), 100, y, font_size, rl.BLUE)
-            y += padded_size
-        }
-        rl.DrawText(fmt.ctprintf("Simulation Ticks: %d", sim.ticks), 100, y, font_size, rl.BLUE)
-        // TODO actually calculate this from apparent velocity
-        // rl.DrawText(fmt.ctprintf("Observed Relative Mag Velocity: %.2v", POINT_SPEED), 100, 260, 20, rl.BLUE) 
         
 
         if (sim.ticks % 2000 == 0) {
             prune(&sim)
-            for obs, i in sim.states[sim.current].observers {
-                sim.obs_idxs[i] = len(obs.observations) - 1
-                sim.diff_apparent_velocities[i] = 0
-            }
         }
     }
 }
@@ -277,11 +183,11 @@ update :: proc(simulation: ^Simulation, ticks: int) {
     }
 }
 
-step :: proc(simulation: ^Simulation) {
-    simulation.ticks += 1
-    current_state := &simulation.states[simulation.current]
-    next_state := &simulation.states[simulation.next]
-    defer simulation.next, simulation.current = simulation.current, simulation.next
+step :: proc(sim: ^Simulation) {
+    sim.ticks += 1
+    current_state := &sim.states[sim.current]
+    next_state := &sim.states[sim.next]
+    defer sim.next, sim.current = sim.current, sim.next
     
     clone_state(next_state, current_state^)
 
@@ -292,12 +198,12 @@ step :: proc(simulation: ^Simulation) {
     }
 
     next_state.ship.position += TICK_STEP * current_state.ship.velocity_rel
-    if next_state.ship.position.x > simulation.sink.x {
+    if next_state.ship.position.x > sim.sink.x {
         next_state.ship.velocity_rel *= -1
-        next_state.ship.position.x = simulation.sink.x
-    } else if next_state.ship.position.x < simulation.source.x {
+        next_state.ship.position.x = sim.sink.x
+    } else if next_state.ship.position.x < sim.source.x {
         next_state.ship.velocity_rel *= -1
-        next_state.ship.position.x = simulation.source.x
+        next_state.ship.position.x = sim.source.x
     }
 
     // update observers
@@ -323,8 +229,8 @@ step :: proc(simulation: ^Simulation) {
         }
     }*/
 
+    // Check observations from observers
     for &obs, i in next_state.observers {
-        // check observations from planet
         for prev_ring, i in current_state.ship.previous_positions {
             updated_ring := next_state.ship.previous_positions[i]
     
@@ -333,16 +239,66 @@ step :: proc(simulation: ^Simulation) {
             d := linalg.length2(obs.position - prev_ring.center)
             had_not_seen: bool = (linalg.length2(obs.position - prev_ring.center)) >= (prev_ring.radius * prev_ring.radius)
             sees_now: bool = (linalg.length2(obs.position - updated_ring.center)) < (updated_ring.radius * updated_ring.radius)
-            /*if i == 0 {
-                r1 := prev_ring.radius * prev_ring.radius
-                r2 := updated_ring.radius * updated_ring.radius
-                fmt.println("IDX:", i, "HAD NOT SEEN", had_not_seen, "SEES", sees_now, "d:", d, "r1:", r1, "r2:", r2)
-            }*/
     
             if had_not_seen && sees_now {
-                // fmt.println("WE SAW IT")
-                append(&obs.observations, Obs_Point{updated_ring.center, simulation.ticks})
+                append(&obs.observations, Obs_Point{updated_ring.center, sim.ticks})
             }
+        }
+    }
+
+
+
+    // Update observer calculated and apparent velocities
+    for observer, o_i in next_state.observers {
+        planet_observations := observer.observations
+        if len(planet_observations) > 2 {
+            latest_point := planet_observations[len(planet_observations) - 1]
+            // if the object has changed directions then we should wait until we have more data
+            // to check apparent and calculated velocity
+            #reverse for obs, i in planet_observations {
+                if obs.tick != latest_point.tick {
+                    delta_d := latest_point.point - obs.point
+                    delta_t := f32(latest_point.tick - obs.tick) * TICK_STEP
+                    diff_vapp := delta_d / delta_t
+                    if sim.diff_apparent_velocities[o_i] != {} {
+                        cos_theta := linalg.dot(sim.diff_apparent_velocities[o_i], diff_vapp) / (linalg.length(sim.diff_apparent_velocities[o_i]) * linalg.length(diff_vapp))
+                        if cos_theta != 1 {
+                            sim.obs_idxs[o_i] = i
+                            sim.calculated_positions[o_i] = {}
+                            sim.calculated_real_velocities[o_i] = {}
+                        }
+                    }
+                    sim.diff_apparent_velocities[o_i] = diff_vapp
+                    break
+                }
+            }
+
+            if len(planet_observations) - sim.obs_idxs[o_i] >= NUM_TICKS_FOR_OBS {
+                previous_point: Obs_Point
+                #reverse for obs, i in planet_observations {
+                    if obs.tick < latest_point.tick - NUM_TICKS_FOR_OBS {
+                        previous_point = obs
+                        // fmt.println("OBS:", len(planet_observations), "PRV_POINT_IDX", i, "PRV_POINT", previous_point, "NEW_POINT_IDX", len(planet_observations) - 1, "NEW_POINT", latest_point)
+                        break
+                    }
+                }
+                delta_d := latest_point.point - previous_point.point
+                delta_t := f32(latest_point.tick - previous_point.tick) * TICK_STEP
+                sim.apparent_velocities[o_i] = delta_d / delta_t
+
+                // calculate _real_ delta t
+                delay_1 := linalg.length(previous_point.point - observer.position)
+                start_tick := previous_point.tick - int(delay_1 / TICK_STEP)
+                
+                delay_2 := linalg.length(latest_point.point - observer.position)
+                end_tick := latest_point.tick - int(delay_2 / TICK_STEP)
+                real_vrel := delta_d / (f32(end_tick - start_tick) * TICK_STEP)
+
+                expected_position := latest_point.point + delay_2*real_vrel
+                sim.calculated_positions[o_i] = {expected_position, true}
+                sim.calculated_real_velocities[o_i] = real_vrel
+            }
+
         }
     }
 }
@@ -463,6 +419,38 @@ draw :: proc(sim: Simulation, flags: Draw_Flags) {
         }
     }
 
+
+    if .Calculations in flags {
+        for calc_pos, i in sim.calculated_positions {
+            if calc_pos.exists {
+                draw_circle(calc_pos.point, .05, rl.Color{0, 0, 170, 200})
+                draw_dotted_line(calc_pos.point, sim.states[sim.current].observers[i].position, rl.Color{0, 255, 0, 200})
+            }
+        }
+    }
+
+    
+    rl.DrawRectangle(50, 100, 550, 400, rl.Color{50, 50, 50, 100})
+    y : c.int = 110
+    font_size: c.int = 18
+    padded_size: c.int = 24
+    rl.DrawText("Distance Between Source and Sink: 5 light seconds", 100, y, font_size, rl.BLUE)
+    y += padded_size
+    rl.DrawText("Distance Between Sink and Observer: 0.5 light seconds", 100, y, font_size, rl.BLUE)
+    y += padded_size
+    rl.DrawText(fmt.ctprintf("Speed of Light: %v", C), 100, y, font_size, rl.BLUE)
+    y += padded_size
+    rl.DrawText(fmt.ctprintf("Speed of Object: %.2v", POINT_SPEED), 100, y, font_size, rl.BLUE)
+    y += padded_size
+    for obs, i in sim.states[sim.current].observers {
+        rl.DrawText(fmt.ctprintf("Observer(%d):", i), 100, y, font_size, rl.BLUE) 
+        y += padded_size
+        rl.DrawText(fmt.ctprintf("     - Apparent Mag Velocity: %.2v", linalg.length(sim.apparent_velocities[i])), 100, y, font_size, rl.BLUE)
+        y += padded_size
+        rl.DrawText(fmt.ctprintf("     - Calculated Relative Velocity: %.2v", linalg.length(sim.calculated_real_velocities[i])), 100, y, font_size, rl.BLUE)
+        y += padded_size
+    }
+    rl.DrawText(fmt.ctprintf("Simulation Ticks: %d", sim.ticks), 100, y, font_size, rl.BLUE)
 }
 
 prune :: proc(sim: ^Simulation) {
@@ -479,6 +467,11 @@ prune :: proc(sim: ^Simulation) {
     next_state := &sim.states[sim.next]
     sim_state_destroy(next_state^)
     next_state^ = {}
+
+    for obs, i in cur_state.observers {
+        sim.obs_idxs[i] = len(obs.observations) - 1
+        sim.diff_apparent_velocities[i] = 0
+    }
 }
 
 prune_prev_pos :: proc(rings: ^[dynamic]Ring) {
