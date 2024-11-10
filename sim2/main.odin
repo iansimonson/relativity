@@ -13,6 +13,7 @@ SCREEN_HEIGHT :: 1080
 
 Point :: [3]f32
 Vec3 :: [3]f32
+Triangle :: [3]Vec3
 // a wave is basically light radiating in
 // all directions from a particular position
 // in this case used to mark previous
@@ -49,7 +50,7 @@ main :: proc() {
     defer rl.CloseWindow()
 
     camera := rl.Camera{
-        position = {0, 0, 4},
+        position = {0, -30, -5},
         target = {0, 0, 0},
         up = {0, 1, 0},
         fovy = 90,
@@ -57,51 +58,50 @@ main :: proc() {
     }
     camera_mode: rl.CameraMode = .FIRST_PERSON
 
-    mat := rl.LoadMaterialDefault()
-    obj_center := Vec3{-100, -10, -20}
-    rotation :=  linalg.matrix4_rotate_f32(45, {1, 1, 1})
-    adjust := (#row_major matrix[4, 4]f32)(linalg.matrix4_translate_f32(obj_center))
-
-    object_mesh := rl.GenMeshCube(10, 10, 10)
-    fmt.println(object_mesh.vertexCount, object_mesh.triangleCount)
-    bb := rl.GetMeshBoundingBox(object_mesh)
-
-    // shader := rl.LoadShader("shaders/lighting_instancing.vs", "shaders/lighting.fs")
-    // shader.locs[int(rl.ShaderLocationIndex.MATRIX_MVP)] = rl.GetShaderLocation(shader, "mvp")
-    // shader.locs[int(rl.ShaderLocationIndex.VECTOR_VIEW)] = rl.GetShaderLocation(shader, "viewPos")
-    // shader.locs[rl.ShaderLocationIndex.MATRIX_MODEL] = rl.GetShaderLocation(shader, "instanceTransform")
-    // ambient_loc := rl.GetShaderLocation(shader, "ambient");
-    // rl.SetShaderValue(shader, ambient_loc, &[4]f32{ 0.2, 0.2, 0.2, 1.0 }, .VEC4)
-
-    // mat.shader = shader
+    object_triangles := [?]Triangle{
+        {{-100, -10, 0}, {-90, -10, 0}, {-100, 0, 0}}, // front
+        {{-100, 0, 0}, {-90, -10, 0}, {-90, 0, 0}},
+        {{-90, -10, 0}, {-90, -10, -10}, {-90, 0, 0}}, // right
+        {{-90, 0, 0}, {-90, -10, -10}, {-90, 0, -10}},
+        {{-90, -10, -10}, {-100, -10, -10}, {-90, 0, -10}}, //back
+        {{-90, 0, -10}, {-100, -10, -10}, {-100, 0, -10}},
+        {{-100, -10, -10}, {-100, -10, 0}, {-100, 0, -10}}, // left
+        {{-100, 0, -10}, {-100, -10, 0}, {-100, 0, 0}},
+        {{-100, 0, 0}, {-90, 0, 0}, {-100, 0, -10}}, // top
+        {{-100, 0, -10}, {-90, 0, 0}, {-90, 0, -10}},
+        {{-100, -10, 0}, {-90, -10, -10}, {-90, -10, 0}}, // bottom
+        {{-90, -10, -10}, {-100, -10, 0}, {-100, -10, -10}},
+    }
+    colors := [6]rl.Color{
+        rl.RED,
+        rl.GREEN,
+        rl.BLUE,
+        rl.YELLOW,
+        rl.Color{0, 150, 150, 255},
+        rl.PURPLE,
+    }
 
     object_position_queues := make([dynamic]q.Queue(Wave), 0, 100)
 
-    for i in 0..<object_mesh.vertexCount {
-        new_q := q.Queue(Wave){}
-        q.init(&new_q)
-        append(&object_position_queues, new_q)
+    for t in object_triangles {
+        for _ in t {
+            new_q := q.Queue(Wave){}
+            q.init(&new_q)
+            append(&object_position_queues, new_q)
+        }
     }
 
-    ground := []Vec3{{-1000, -20, 1000}, {1000, -20, 1000}, {-1000, -20, -1000}, {1000, -20, -1000}}
+    ground := []Vec3{{-1000, -35, 1000}, {1000, -35, 1000}, {-1000, -35, -1000}, {1000, -35, -1000}}
 
     // we're going to assume everything's been at rest where it starts for
     // enough time that we can just see its starting location.
     // for now at least. Apparently things _do_ pop into existence
     // for us when their light first reaches us
-    seen_object := object_mesh
-    seen_object.vertices = make([^]f32, 3*seen_object.vertexCount)
-    for i in 0..<seen_object.vertexCount {
-        vertex := Vec3{object_mesh.vertices[3*i], object_mesh.vertices[3*i + 1], object_mesh.vertices[3*i + 2]}
-        real_location := adjust * [4]f32{vertex.x, vertex.y, vertex.z, 1}
-        seen_object.vertices[i*3] = real_location.x
-        seen_object.vertices[i*3 + 1] = real_location.y
-        seen_object.vertices[i*3 + 2] = real_location.z
-    }
+    seen_object := object_triangles
 
     cur_time := f32(rl.GetTime())
 
-    some_velocity := Vec3{.5*C, 0, 0}
+    some_velocity := .99 * C * direction(Vec3{1, 0, 0})
 
     rl.DisableCursor()
     rl.SetTargetFPS(60)
@@ -117,25 +117,19 @@ main :: proc() {
                 wave.radius += dt * C
             }
         }
-        for i in 0..<object_mesh.vertexCount {
-            vertex := Vec3{object_mesh.vertices[3*i], object_mesh.vertices[3*i + 1], object_mesh.vertices[3*i + 2]}
-            real_location := adjust * [4]f32{vertex.x, vertex.y, vertex.z, 1}
-            q.append(&object_position_queues[i], Wave{center = real_location.xyz})
+        dv := some_velocity * rl.GetFrameTime()
+        for &t, i in object_triangles {
+            for &p, j in t {
+                q.append(&object_position_queues[3*i + j], Wave{center = p})
+                p += dv
+            }
         }
-        obj_center += some_velocity * rl.GetFrameTime()
-
-        adjust = (#row_major matrix[4, 4]f32)(linalg.matrix4_translate_f32(obj_center))
-        bb_adjust_max := adjust * [4]f32{bb.max.x, bb.max.y, bb.max.z, 1}
-        bb_adjust_min := adjust * [4]f32{bb.min.x, bb.min.y, bb.min.z, 1}
-        bb_adjust := rl.BoundingBox{min = bb_adjust_min.xyz, max = bb_adjust_max.xyz}
 
         for &obj_positions, i in object_position_queues {
             wave := q.peek_front(&obj_positions)
-            if linalg.length(camera.position - wave.center) - wave.radius < .5 {
+            if linalg.length(camera.position - wave.center) - wave.radius < .1 {
                 q.pop_front(&obj_positions)
-                seen_object.vertices[3*i] = wave.center.x
-                seen_object.vertices[3*i + 1] = wave.center.y
-                seen_object.vertices[3*i + 2] = wave.center.z
+                seen_object[i/3][i%3] = wave.center
             }
         }
 
@@ -150,11 +144,21 @@ main :: proc() {
 
             g_ptr, g_len := mem.slice_to_components(ground)
             rl.DrawTriangleStrip3D(g_ptr, c.int(g_len), rl.GRAY)
-            rl.DrawBoundingBox(bb_adjust, rl.GREEN)
-            rl.DrawMesh(object_mesh, mat, adjust)
-            rl.DrawMesh(seen_object, mat, 1)
-            for i in 0..<seen_object.vertexCount {
-                rl.DrawPoint3D(vec3_from_raw(seen_object.vertices, int(i)), rl.WHITE)
+            // for t in object_triangles {
+                // rl.DrawTriangle3D(t[0], t[1], t[2], rl.Color{100, 100, 100, 100})
+            // }
+            // for t in object_triangles {
+                // rl.DrawLine3D(t[0], t[1], rl.Color{0, 0, 0, 100})
+                // rl.DrawLine3D(t[1], t[2], rl.Color{0, 0, 0, 100})
+                // rl.DrawLine3D(t[2], t[0], rl.Color{0, 0, 0, 100})
+            // }
+            for t, i in seen_object {
+                rl.DrawTriangle3D(t[0], t[1], t[2], colors[i/2])
+            }
+            for t, i in seen_object {
+                rl.DrawLine3D(t[0], t[1], rl.BLACK)
+                rl.DrawLine3D(t[1], t[2], rl.BLACK)
+                rl.DrawLine3D(t[2], t[0], rl.BLACK)
             }
 
 
@@ -162,7 +166,6 @@ main :: proc() {
 
         { // HUD/anything sits on top of camera
             rl.DrawText(fmt.ctprintf("CamPos: (%.2v, %.2v, %.2v)", camera.position.x, camera.position.y, camera.position.z), 10, 10, 20, rl.GREEN)
-            rl.DrawText(fmt.ctprintf("ObjCenter: (%.2v, %.2v, %.2v)", obj_center.x, obj_center.y, obj_center.z), 10, 35, 20, rl.GREEN)
         }
 
 
