@@ -106,8 +106,8 @@ main :: proc() {
     defer rl.CloseWindow()
 
     camera := rl.Camera{
-        position = {0, -30, 0},
-        target = {-100, -30, 0},
+        position = {0, 20, -100},
+        target = {0, 20, 0},
         up = {0, 1, 0},
         fovy = 90,
         projection = .PERSPECTIVE,
@@ -173,8 +173,8 @@ main :: proc() {
             rl.BeginMode3D(camera)
             defer rl.EndMode3D()
 
-            half_up_pt := direction(Vec3{-1, 1, 0}) * 100 - camera.position
-            above_pt := direction(Vec3{0, 1, 0}) * 100 - camera.position
+            // half_up_pt := direction(Vec3{-1, 1, 0}) * 100 - camera.position
+            // above_pt := direction(Vec3{0, 1, 0}) * 100 - camera.position
 
             g_ptr, g_len := mem.slice_to_components(ground)
             rl.DrawTriangleStrip3D(g_ptr, c.int(g_len), rl.GRAY)
@@ -185,20 +185,28 @@ main :: proc() {
             for triangle, i in t1 {
                 color := colors[i/(2 * (Granularity - 1) *  (Granularity - 1))]
                 rl.DrawTriangle3D(seen_object[triangle.x], seen_object[triangle.y], seen_object[triangle.z], color)
+                rl.DrawTriangle3D(object.actual_object[triangle.x], object.actual_object[triangle.y], object.actual_object[triangle.z], color)
             }
             draw_cube_outline(seen_object2)
             for triangle, i in t2 {
                 color := colors[i/(2 * (Granularity - 1) *  (Granularity - 1))]
                 rl.DrawTriangle3D(seen_object2[triangle.x], seen_object2[triangle.y], seen_object2[triangle.z], color)
+                rl.DrawTriangle3D(object2.actual_object[triangle.x], object2.actual_object[triangle.y], object2.actual_object[triangle.z], color)
+
             }
             draw_cube_outline(seen_object3)
             for triangle, i in t3 {
                 color := colors[i/(2 * (Granularity - 1) *  (Granularity - 1))]
                 rl.DrawTriangle3D(seen_object3[triangle.x], seen_object3[triangle.y], seen_object3[triangle.z], color)
+                rl.DrawTriangle3D(object3.actual_object[triangle.x], object3.actual_object[triangle.y], object3.actual_object[triangle.z], color)
             }
 
-            rl.DrawSphere(half_up_pt, 10, rl.RED)
-            rl.DrawSphere(above_pt, 10, rl.GREEN)
+            // rl.DrawSphere(half_up_pt, 10, rl.RED)
+            // rl.DrawSphere(above_pt, 10, rl.GREEN)
+            rl.DrawTriangle3D({.3, 100, camera.position.z + 5}, {-.3, -100, camera.position.z + 5}, {-.3, 100, camera.position.z + 5}, rl.Color{0, 255, 0, 150})
+            rl.DrawTriangle3D({.3, 100, camera.position.z + 5}, {-.3, 100, camera.position.z + 5}, {-.3, -100, camera.position.z + 5}, rl.Color{0, 255, 0, 150})
+            rl.DrawTriangle3D({.3, 100, camera.position.z + 5}, {.3, -100, camera.position.z + 5}, {-.3, -100, camera.position.z + 5}, rl.Color{0, 255, 0, 150})
+            rl.DrawTriangle3D({.3, 100, camera.position.z + 5}, {-.3, -100, camera.position.z + 5}, {.3, -100, camera.position.z + 5}, rl.Color{0, 255, 0, 150})
 
 
         }
