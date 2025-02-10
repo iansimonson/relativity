@@ -94,8 +94,9 @@ cam_movment :: proc() -> Vec3 {
 }
 
 cam_rotate :: proc() -> Vec3 {
-    mdelta := rl.GetMouseDelta()
-    return {mdelta.x * 0.05, mdelta.y * 0.05, 0}
+    // mdelta := rl.GetMouseDelta()
+    // return {mdelta.x * 0.05, mdelta.y * 0.05, 0}
+    return 0
 }
 
 C :: 10
